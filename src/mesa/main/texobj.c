@@ -325,6 +325,7 @@ _mesa_initialize_texture_object( struct gl_context *ctx,
    obj->BufferObjectFormat = GL_R8;
    obj->_BufferObjectFormat = MESA_FORMAT_R_UNORM8;
    obj->ImageFormatCompatibilityType = GL_IMAGE_FORMAT_COMPATIBILITY_BY_SIZE;
+   obj->Sampler.ReductionMode = GL_WEIGHTED_AVERAGE_ARB;
 
    /* GL_ARB_bindless_texture */
    _mesa_init_texture_handles(obj);
@@ -465,6 +466,7 @@ _mesa_copy_texture_object( struct gl_texture_object *dest,
    dest->_Swizzle = src->_Swizzle;
    dest->_IsHalfFloat = src->_IsHalfFloat;
    dest->_IsFloat = src->_IsFloat;
+   dest->Sampler.ReductionMode = src->Sampler.ReductionMode;
 
    dest->RequiredTextureImageUnits = src->RequiredTextureImageUnits;
 }

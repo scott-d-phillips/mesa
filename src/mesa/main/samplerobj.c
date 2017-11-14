@@ -135,6 +135,7 @@ _mesa_init_sampler_object(struct gl_sampler_object *sampObj, GLuint name)
    sampObj->sRGBDecode = GL_DECODE_EXT;
    sampObj->CubeMapSeamless = GL_FALSE;
    sampObj->HandleAllocated = GL_FALSE;
+   sampObj->ReductionMode = GL_WEIGHTED_AVERAGE_ARB;
 
    /* GL_ARB_bindless_texture */
    _mesa_init_sampler_handles(sampObj);
@@ -852,6 +853,27 @@ set_sampler_srgb_decode(struct gl_context *ctx,
    return GL_TRUE;
 }
 
+static GLuint
+set_sampler_reduction_mode(struct gl_context *ctx,
+                         struct gl_sampler_object *samp, GLint param)
+{
+   if (!ctx->Extensions.ARB_texture_filter_minmax)
+      return INVALID_PARAM;
+
+   if (samp->ReductionMode == param)
+      return GL_FALSE;
+
+   if (param == GL_MIN ||
+       param == GL_MAX ||
+       param == GL_WEIGHTED_AVERAGE_ARB) {
+      flush(ctx);
+      samp->ReductionMode = param;
+      return GL_TRUE;
+   }
+
+   return INVALID_PARAM;
+}
+
 static struct gl_sampler_object *
 sampler_parameter_error_check(struct gl_context *ctx, GLuint sampler,
                               bool get, const char *name)
@@ -936,6 +958,9 @@ _mesa_SamplerParameteri(GLuint sampler, GLenum pname, GLint param)
       break;
    case GL_TEXTURE_SRGB_DECODE_EXT:
       res = set_sampler_srgb_decode(ctx, sampObj, param);
+      break;
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
+      res = set_sampler_reduction_mode(ctx, sampObj, param);
       break;
    case GL_TEXTURE_BORDER_COLOR:
       /* fall-through */
@@ -1464,6 +1489,11 @@ _mesa_GetSamplerParameteriv(GLuint sampler, GLenum pname, GLint *params)
          goto invalid_pname;
       *params = (GLenum) sampObj->sRGBDecode;
       break;
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
+      if (!ctx->Extensions.ARB_texture_filter_minmax)
+         goto invalid_pname;
+      *params = sampObj->ReductionMode;
+      break;
    default:
       goto invalid_pname;
    }
@@ -1535,6 +1565,11 @@ _mesa_GetSamplerParameterfv(GLuint sampler, GLenum pname, GLfloat *params)
       if (!ctx->Extensions.EXT_texture_sRGB_decode)
          goto invalid_pname;
       *params = (GLfloat) sampObj->sRGBDecode;
+      break;
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
+      if (!ctx->Extensions.ARB_texture_filter_minmax)
+         goto invalid_pname;
+      *params = (GLfloat) sampObj->ReductionMode;
       break;
    default:
       goto invalid_pname;
@@ -1608,6 +1643,11 @@ _mesa_GetSamplerParameterIiv(GLuint sampler, GLenum pname, GLint *params)
          goto invalid_pname;
       *params = (GLenum) sampObj->sRGBDecode;
       break;
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
+      if (!ctx->Extensions.ARB_texture_filter_minmax)
+         goto invalid_pname;
+      *params = sampObj->ReductionMode;
+      break;
    default:
       goto invalid_pname;
    }
@@ -1679,6 +1719,11 @@ _mesa_GetSamplerParameterIuiv(GLuint sampler, GLenum pname, GLuint *params)
       if (!ctx->Extensions.EXT_texture_sRGB_decode)
          goto invalid_pname;
       *params = (GLenum) sampObj->sRGBDecode;
+      break;
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
+      if (!ctx->Extensions.ARB_texture_filter_minmax)
+         goto invalid_pname;
+      *params = sampObj->ReductionMode;
       break;
    default:
       goto invalid_pname;

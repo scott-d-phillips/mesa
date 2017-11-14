@@ -125,7 +125,7 @@ _mesa_is_texture_complete(const struct gl_texture_object *texObj,
     * be forbidden, however it is allowed per GL 4.5 rules, allow it
     * even without GL 4.5 since it was a spec mistake.
     */
-   if ((texObj->_IsIntegerFormat ||
+   if (((texObj->_IsIntegerFormat && sampler->ReductionMode == GL_WEIGHTED_AVERAGE_ARB) ||
         (texObj->StencilSampling &&
          texObj->Image[0][texObj->BaseLevel]->_BaseFormat == GL_DEPTH_STENCIL)) &&
        (sampler->MagFilter != GL_NEAREST ||

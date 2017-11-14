@@ -989,6 +989,7 @@ struct gl_sampler_object
    GLenum CompareFunc;		/**< GL_ARB_shadow */
    GLenum sRGBDecode;           /**< GL_DECODE_EXT or GL_SKIP_DECODE_EXT */
    GLboolean CubeMapSeamless;   /**< GL_AMD_seamless_cubemap_per_texture */
+   GLenum ReductionMode;        /**< GL_ARB_texture_filter_minmax */
 
    /** GL_ARB_bindless_texture */
    bool HandleAllocated;
@@ -4107,6 +4108,7 @@ struct gl_extensions
    GLboolean ARB_texture_env_crossbar;
    GLboolean ARB_texture_env_dot3;
    GLboolean ARB_texture_filter_anisotropic;
+   GLboolean ARB_texture_filter_minmax;
    GLboolean ARB_texture_float;
    GLboolean ARB_texture_gather;
    GLboolean ARB_texture_mirror_clamp_to_edge;

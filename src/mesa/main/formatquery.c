@@ -232,6 +232,15 @@ _legal_parameters(struct gl_context *ctx, GLenum target, GLenum internalformat,
       }
       break;
 
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
+      if (!query2 || !_mesa_has_ARB_texture_filter_minmax(ctx)) {
+         _mesa_error(ctx, GL_INVALID_ENUM,
+                     "glGetInternalformativ(pname=%s)",
+                     _mesa_enum_to_string(pname));
+         return false;
+      }
+      break;
+
    default:
       _mesa_error(ctx, GL_INVALID_ENUM,
                   "glGetInternalformativ(pname=%s)",
@@ -375,6 +384,7 @@ _set_default_response(GLenum pname, GLint buffer[16])
    case GL_STENCIL_RENDERABLE:
    case GL_MIPMAP:
    case GL_TEXTURE_COMPRESSED:
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
       buffer[0] = GL_FALSE;
       break;
 
@@ -1538,6 +1548,14 @@ _mesa_GetInternalformativ(GLenum target, GLenum internalformat, GLenum pname,
 
    case GL_NUM_TILING_TYPES_EXT:
    case GL_TILING_TYPES_EXT:
+      ctx->Driver.QueryInternalFormat(ctx, target, internalformat, pname,
+                                      buffer);
+      break;
+
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
+      if (!_mesa_has_ARB_texture_filter_minmax(ctx))
+         goto end;
+
       ctx->Driver.QueryInternalFormat(ctx, target, internalformat, pname,
                                       buffer);
       break;
