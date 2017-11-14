@@ -5094,6 +5094,16 @@ genX(update_sampler_state)(struct brw_context *brw,
    samp_st.LODPreClampEnable = true;
 #endif
 
+#if GEN_GEN >= 9
+   if (sampler->ReductionMode != GL_WEIGHTED_AVERAGE_ARB) {
+      samp_st.ReductionTypeEnable = true;
+      if (sampler->ReductionMode == GL_MIN)
+         samp_st.ReductionType = MINIMUM;
+      else
+         samp_st.ReductionType = MAXIMUM;
+   }
+#endif
+
    GENX(SAMPLER_STATE_pack)(brw, sampler_state, &samp_st);
 }
 

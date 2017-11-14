@@ -107,6 +107,10 @@ brw_query_internal_format(struct gl_context *ctx, GLenum target,
       break;
    }
 
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
+      params[0] = GL_TRUE;
+      break;
+
    default:
       /* By default, we call the driver hook's fallback function from the frontend,
        * which has generic implementation for all pnames.

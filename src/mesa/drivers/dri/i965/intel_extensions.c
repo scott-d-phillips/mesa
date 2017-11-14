@@ -285,6 +285,7 @@ intelInitExtensions(struct gl_context *ctx)
    if (devinfo->gen >= 9) {
       ctx->Extensions.ANDROID_extension_pack_es31a = true;
       ctx->Extensions.ARB_shader_stencil_export = true;
+      ctx->Extensions.ARB_texture_filter_minmax = true;
       ctx->Extensions.KHR_blend_equation_advanced_coherent = true;
       ctx->Extensions.KHR_texture_compression_astc_ldr = true;
       ctx->Extensions.KHR_texture_compression_astc_sliced_3d = true;
