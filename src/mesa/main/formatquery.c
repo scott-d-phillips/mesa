@@ -218,6 +218,7 @@ _legal_parameters(struct gl_context *ctx, GLenum target, GLenum internalformat,
    case GL_VIEW_COMPATIBILITY_CLASS:
    case GL_NUM_TILING_TYPES_EXT:
    case GL_TILING_TYPES_EXT:
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
       /* The ARB_internalformat_query spec says:
        *
        *     "If the <pname> parameter to GetInternalformativ is not SAMPLES
@@ -375,6 +376,7 @@ _set_default_response(GLenum pname, GLint buffer[16])
    case GL_STENCIL_RENDERABLE:
    case GL_MIPMAP:
    case GL_TEXTURE_COMPRESSED:
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
       buffer[0] = GL_FALSE;
       break;
 
@@ -1538,6 +1540,14 @@ _mesa_GetInternalformativ(GLenum target, GLenum internalformat, GLenum pname,
 
    case GL_NUM_TILING_TYPES_EXT:
    case GL_TILING_TYPES_EXT:
+      ctx->Driver.QueryInternalFormat(ctx, target, internalformat, pname,
+                                      buffer);
+      break;
+
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
+      if (!_mesa_has_ARB_texture_filter_minmax(ctx))
+         goto end;
+
       ctx->Driver.QueryInternalFormat(ctx, target, internalformat, pname,
                                       buffer);
       break;

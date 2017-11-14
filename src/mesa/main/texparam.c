@@ -630,6 +630,25 @@ set_tex_parameteri(struct gl_context *ctx,
       }
       goto invalid_pname;
 
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
+      if (ctx->Extensions.ARB_texture_filter_minmax) {
+
+         if (!_mesa_target_allows_setting_sampler_parameters(texObj->Target))
+            goto invalid_enum;
+
+         if (texObj->Sampler.ReductionMode == params[0])
+            return GL_FALSE;
+         if (params[0] == GL_MIN ||
+             params[0] == GL_MAX ||
+             params[0] == GL_WEIGHTED_AVERAGE_ARB) {
+            flush(ctx);
+            texObj->Sampler.ReductionMode = params[0];
+            return GL_TRUE;
+         }
+         goto invalid_param;
+      }
+      goto invalid_pname;
+
    default:
       goto invalid_pname;
    }
@@ -836,6 +855,7 @@ _mesa_texture_parameterf(struct gl_context *ctx,
    case GL_TEXTURE_SWIZZLE_G_EXT:
    case GL_TEXTURE_SWIZZLE_B_EXT:
    case GL_TEXTURE_SWIZZLE_A_EXT:
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
       {
          GLint p[4];
          p[0] = (param > 0) ?
@@ -888,6 +908,7 @@ _mesa_texture_parameterfv(struct gl_context *ctx,
    case GL_DEPTH_STENCIL_TEXTURE_MODE:
    case GL_TEXTURE_SRGB_DECODE_EXT:
    case GL_TEXTURE_CUBE_MAP_SEAMLESS:
+   case GL_TEXTURE_REDUCTION_MODE_ARB:
       {
          /* convert float param to int */
          GLint p[4];
@@ -2040,6 +2061,12 @@ get_tex_parameterfv(struct gl_context *ctx,
          *params = ENUM_TO_FLOAT(obj->TextureTiling);
          break;
 
+      case GL_TEXTURE_REDUCTION_MODE_ARB:
+         if (!ctx->Extensions.ARB_texture_filter_minmax)
+            goto invalid_pname;
+         *params = (GLfloat) obj->Sampler.ReductionMode;
+         break;
+
       default:
          goto invalid_pname;
    }
@@ -2276,6 +2303,12 @@ get_tex_parameteriv(struct gl_context *ctx,
          if (!ctx->Extensions.EXT_memory_object)
             goto invalid_pname;
          *params = (GLint) obj->TextureTiling;
+         break;
+
+      case GL_TEXTURE_REDUCTION_MODE_ARB:
+         if (!ctx->Extensions.ARB_texture_filter_minmax)
+            goto invalid_pname;
+         *params = (GLint) obj->Sampler.ReductionMode;
          break;
 
       default:
