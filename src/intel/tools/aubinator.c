@@ -837,6 +837,8 @@ handle_trace_header(uint32_t *p)
       pci_id = aub_pci_id;
 
    struct gen_device_info devinfo;
+   char *color = GREEN_HEADER, *reset_color = NORMAL;
+
    if (!gen_get_device_info(pci_id, &devinfo)) {
       fprintf(stderr, "can't find device information: pci_id=0x%x\n", pci_id);
       exit(EXIT_FAILURE);
@@ -851,8 +853,11 @@ handle_trace_header(uint32_t *p)
    if (spec == NULL || disasm == NULL)
       exit(EXIT_FAILURE);
 
+   if (option_color == COLOR_NEVER)
+      color = reset_color = "";
+
    fprintf(outfile, "%sAubinator: Intel AUB file decoder.%-80s%s\n",
-           GREEN_HEADER, "", NORMAL);
+           color, "", reset_color);
 
    if (input_file)
       fprintf(outfile, "File name:        %s\n", input_file);
