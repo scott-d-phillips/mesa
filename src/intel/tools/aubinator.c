@@ -822,20 +822,8 @@ handle_trace_block(uint32_t *p)
 }
 
 static void
-handle_trace_header(uint32_t *p)
+aubinator_init(uint16_t aub_pci_id, const char *app_name)
 {
-   /* The intel_aubdump tool from IGT is kind enough to put a PCI-ID= tag in
-    * the AUB header comment.  If the user hasn't specified a hardware
-    * generation, try to use the one from the AUB file.
-    */
-   uint32_t *end = p + (p[0] & 0xffff) + 2;
-   int aub_pci_id = 0;
-   if (end > &p[12] && p[12] > 0)
-      sscanf((char *)&p[13], "PCI-ID=%i", &aub_pci_id);
-
-   if (pci_id == 0)
-      pci_id = aub_pci_id;
-
    struct gen_device_info devinfo;
    char *color = GREEN_HEADER, *reset_color = NORMAL;
 
@@ -865,15 +853,34 @@ handle_trace_header(uint32_t *p)
    if (aub_pci_id)
       fprintf(outfile, "PCI ID:           0x%x\n", aub_pci_id);
 
-   char app_name[33];
-   strncpy(app_name, (char *)&p[2], 32);
-   app_name[32] = 0;
    fprintf(outfile, "Application name: %s\n", app_name);
 
    fprintf(outfile, "Decoding as:      %s\n", gen_get_device_name(pci_id));
 
    /* Throw in a new line before the first batch */
    fprintf(outfile, "\n");
+}
+
+static void
+handle_trace_header(uint32_t *p)
+{
+   /* The intel_aubdump tool from IGT is kind enough to put a PCI-ID= tag in
+    * the AUB header comment.  If the user hasn't specified a hardware
+    * generation, try to use the one from the AUB file.
+    */
+   uint32_t *end = p + (p[0] & 0xffff) + 2;
+   int aub_pci_id = 0;
+   if (end > &p[12] && p[12] > 0)
+      sscanf((char *)&p[13], "PCI-ID=%i", &aub_pci_id);
+
+   if (pci_id == 0)
+      pci_id = aub_pci_id;
+
+   char app_name[33];
+   strncpy(app_name, (char *)&p[2], 32);
+   app_name[32] = 0;
+
+   aubinator_init(aub_pci_id, app_name);
 }
 
 struct aub_file {
