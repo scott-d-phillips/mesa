@@ -287,8 +287,8 @@ linear_to_xtiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
  */
 static inline void
 linear_to_ytiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
-                 uint32_t y0, uint32_t y1,
-                 char *dst, const char *src,
+                 uint32_t y0, uint32_t y3,
+                 char *dst, const char *src0,
                  int32_t src_pitch,
                  uint32_t swizzle_bit,
                  mem_copy_fn mem_copy,
@@ -306,6 +306,9 @@ linear_to_ytiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
    const uint32_t column_width = ytile_span;
    const uint32_t bytes_per_column = column_width * ytile_height;
 
+   uint32_t y1 = ALIGN_UP(y0, 4);
+   uint32_t y2 = ALIGN_DOWN(y3, 4);
+
    uint32_t xo0 = (x0 % ytile_span) + (x0 / ytile_span) * bytes_per_column;
    uint32_t xo1 = (x1 % ytile_span) + (x1 / ytile_span) * bytes_per_column;
 
@@ -319,26 +322,70 @@ linear_to_ytiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
 
    uint32_t x, yo;
 
-   src += (ptrdiff_t)y0 * src_pitch;
+   const char *src = src0 + (ptrdiff_t)y1 * src_pitch;
 
-   for (yo = y0 * column_width; yo < y1 * column_width; yo += column_width) {
+   for (yo = y1 * column_width; yo < y2 * column_width; yo += 4 * column_width) {
       uint32_t xo = xo1;
       uint32_t swizzle = swizzle1;
 
-      mem_copy(dst + ((xo0 + yo) ^ swizzle0), src + x0, x1 - x0);
+      if (x0 != x1) {
+         mem_copy(dst + ((xo0 + yo + 0 * column_width) ^ swizzle0), src + x0 + 0 * src_pitch, x1 - x0);
+         mem_copy(dst + ((xo0 + yo + 1 * column_width) ^ swizzle0), src + x0 + 1 * src_pitch, x1 - x0);
+         mem_copy(dst + ((xo0 + yo + 2 * column_width) ^ swizzle0), src + x0 + 2 * src_pitch, x1 - x0);
+         mem_copy(dst + ((xo0 + yo + 3 * column_width) ^ swizzle0), src + x0 + 3 * src_pitch, x1 - x0);
+      }
 
       /* Step by spans/columns.  As it happens, the swizzle bit flips
        * at each step so we don't need to calculate it explicitly.
        */
       for (x = x1; x < x2; x += ytile_span) {
-         mem_copy_align16(dst + ((xo + yo) ^ swizzle), src + x, ytile_span);
+         mem_copy_align16(dst + ((xo + yo + 0 * column_width) ^ swizzle), src + x + 0 * src_pitch, ytile_span);
+         mem_copy_align16(dst + ((xo + yo + 1 * column_width) ^ swizzle), src + x + 1 * src_pitch, ytile_span);
+         mem_copy_align16(dst + ((xo + yo + 2 * column_width) ^ swizzle), src + x + 2 * src_pitch, ytile_span);
+         mem_copy_align16(dst + ((xo + yo + 3 * column_width) ^ swizzle), src + x + 3 * src_pitch, ytile_span);
          xo += bytes_per_column;
          swizzle ^= swizzle_bit;
       }
 
-      mem_copy_align16(dst + ((xo + yo) ^ swizzle), src + x2, x3 - x2);
+      if (x2 != x3) {
+         mem_copy_align16(dst + ((xo + yo + 0 * column_width) ^ swizzle), src + x2 + 0 * src_pitch, x3 - x2);
+         mem_copy_align16(dst + ((xo + yo + 1 * column_width) ^ swizzle), src + x2 + 1 * src_pitch, x3 - x2);
+         mem_copy_align16(dst + ((xo + yo + 2 * column_width) ^ swizzle), src + x2 + 2 * src_pitch, x3 - x2);
+         mem_copy_align16(dst + ((xo + yo + 3 * column_width) ^ swizzle), src + x2 + 3 * src_pitch, x3 - x2);
+      }
 
-      src += src_pitch;
+      src += 4 * src_pitch;
+   }
+
+   if (y0 != y1 || y2 != y3) {
+      src = src0 + (ptrdiff_t)y0 * src_pitch;
+
+      for (yo = y0 * column_width; yo < y3 * column_width; yo += column_width) {
+         uint32_t xo = xo1;
+         uint32_t swizzle = swizzle1;
+
+         if (yo >= y1 * column_width && yo < y2 * column_width) {
+            if (y2 == y3)
+               break;
+            yo = y2 * column_width;
+            src = src0 + y2 * src_pitch;
+         }
+
+         mem_copy(dst + ((xo0 + yo) ^ swizzle0), src + x0, x1 - x0);
+
+         /* Step by spans/columns.  As it happens, the swizzle bit flips
+          * at each step so we don't need to calculate it explicitly.
+          */
+         for (x = x1; x < x2; x += ytile_span) {
+            mem_copy_align16(dst + ((xo + yo) ^ swizzle), src + x, ytile_span);
+            xo += bytes_per_column;
+            swizzle ^= swizzle_bit;
+         }
+
+         mem_copy_align16(dst + ((xo + yo) ^ swizzle), src + x2, x3 - x2);
+
+         src += src_pitch;
+      }
    }
 }
 
