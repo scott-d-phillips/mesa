@@ -104,10 +104,10 @@ util_vma_heap_alloc(struct util_vma_heap *heap,
        */
       uint64_t offset = (hole->size - size) + hole->offset;
 
-      /* Align the offset.  We align down and not op because we are allocating
+      /* Align the offset.  We align down and not up because we are allocating
        * from the top of the hole and not the bottom.
        */
-      offset &= (alignment - 1);
+      offset &= ~(alignment - 1);
 
       if (offset < hole->offset)
          continue;
@@ -178,7 +178,7 @@ util_vma_heap_free(struct util_vma_heap *heap,
    /* It's possible for offset + size to wrap around if we touch the top of
     * the 64-bit address space, but we cannot go any higher than 2^64.
     */
-   assert(start + size == 0 || start + size > start);
+   assert(offset + size == 0 || offset + size > offset);
 
    util_vma_heap_validate(heap);
 
