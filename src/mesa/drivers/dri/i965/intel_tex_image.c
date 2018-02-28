@@ -298,6 +298,7 @@ intel_texsubimage_tiled_memcpy(struct gl_context * ctx,
       image->mt->surf.row_pitch, src_pitch,
       brw->has_swizzling,
       image->mt->surf.tiling,
+      image->mt->cpp,
       mem_copy
    );
 
@@ -804,6 +805,7 @@ intel_gettexsubimage_tiled_memcpy(struct gl_context *ctx,
       dst_pitch, image->mt->surf.row_pitch,
       brw->has_swizzling,
       image->mt->surf.tiling,
+      image->mt->cpp,
       mem_copy
    );
 
