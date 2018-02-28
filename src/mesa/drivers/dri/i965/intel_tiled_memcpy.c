@@ -57,6 +57,12 @@ static const uint32_t xtile_span = 64;
 static const uint32_t ytile_width = 128;
 static const uint32_t ytile_height = 32;
 static const uint32_t ytile_span = 16;
+static const uint32_t std_ytile128_width = 256;
+static const uint32_t std_ytile128_height = 16;
+static const uint32_t std_ytile32_width = 128;
+static const uint32_t std_ytile32_height = 32;
+static const uint32_t std_ytile8_width = 64;
+static const uint32_t std_ytile8_height = 64;
 
 static inline uint32_t
 ror(uint32_t n, uint32_t d)
@@ -253,6 +259,48 @@ ytile_addr(uint32_t x, uint32_t y, char *src, uint32_t src_pitch)
    return src + (((y >> 5) * (src_pitch >> 7) + (x >> 7)) << 12);
 }
 
+static char *
+yf128_addr(uint32_t x, uint32_t y, char *src, uint32_t src_pitch)
+{
+   return src + (((y >> 4) * (src_pitch >> 8) + (x >> 8)) << 12);
+}
+
+static char *
+yf32_addr(uint32_t x, uint32_t y, char *src, uint32_t src_pitch)
+{
+   return src + (((y >> 5) * (src_pitch >> 7) + (x >> 7)) << 12);
+}
+
+static char *
+yf8_addr(uint32_t x, uint32_t y, char *src, uint32_t src_pitch)
+{
+   return src + (((y >> 6) * (src_pitch >> 6) + (x >> 6)) << 12);
+}
+
+static char *
+ys128_addr(uint32_t x, uint32_t y, char *src, uint32_t src_pitch)
+{
+   return src + (((y & 0x10) << 8) + ((y & 0x20) << 9) + ((x & 0x100) << 5) +
+                 ((x & 0x200) << 6) +
+                 (((y >> 6) * (src_pitch >> 10) + (x >> 10)) << 16));
+}
+
+static char *
+ys32_addr(uint32_t x, uint32_t y, char *src, uint32_t src_pitch)
+{
+   return src + (((y & 0x20) << 7) + ((y & 0x40) << 8) + ((x & 0x80) << 6) +
+                 ((x & 0x100) << 7) +
+                 (((y >> 7) * (src_pitch >> 9) + (x >> 9)) << 16));
+}
+
+static char *
+ys8_addr(uint32_t x, uint32_t y, char *src, uint32_t src_pitch)
+{
+   return src + (((y & 0x40) << 6) + ((y & 0x80) << 7) + ((x & 0x40) << 7) +
+                 ((x & 0x80) << 8) +
+                 (((y >> 8) * (src_pitch >> 8) + (x >> 8)) << 16));
+}
+
 /**
  * Copy texture data from linear to X tile layout.
  *
@@ -302,7 +350,8 @@ linear_to_xtiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
 }
 
 /**
- * Copy texture data from linear to Y tile layout.
+ * Copy texture data from linear to Y tile layout. This function tiles a
+ * single 4KB portion of the tiling (even for the 64KB tiling variants)
  *
  * \copydoc tile_copy_fn
  */
@@ -312,28 +361,71 @@ linear_to_ytiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
                  char *dst, const char *src,
                  int32_t src_pitch,
                  uint32_t swizzle_bit,
-                 UNUSED enum isl_tiling tiling,
-                 UNUSED int cpp,
+                 enum isl_tiling tiling,
+                 int cpp,
                  mem_copy_fn mem_copy,
                  mem_copy_fn mem_copy_align16)
 {
-   /* Y tiles consist of columns that are 'ytile_span' wide (and the same height
-    * as the tile).  Thus the destination offset for (x,y) is the sum of:
-    *   (x % column_width)                    // position within column
-    *   (x / column_width) * bytes_per_column // column number * bytes per column
-    *   y * column_width
+   /* The Y tilings are a family of different tilings with the following
+    * linear-to-tiled address mapping for the low 12-bits of the tiled
+    * addresses:
     *
-    * The copy destination offset for each range copied is the sum of
-    * an X offset 'xo0' or 'xo' and a Y offset 'yo.'
+    * Tiling        bpp        11 10  9  8  7  6  5  4  3  2  1  0
+    * ------------------------------------------------------------
+    * TileYF/TileYS 64 & 128   u7 v3 u6 v2 u5 u4 v1 v0 u3 u2 u1 u0
+    * TileYF/TileYS 16 &  32   u6 v4 u5 v3 u4 v2 v1 v0 u3 u2 u1 u0
+    * TileYF/TileYS        8   u5 v5 u4 v4 v3 v2 v1 v0 u3 u2 u1 u0
+    * TileY                    u6 u5 u4 v4 v3 v2 v1 v0 u3 u2 u1 u0
+    *
+    * The low 6-bits (addressing 64B, one cache line) of the tiling is common
+    * across all variants.
     */
    const uint32_t column_width = ytile_span;
-   const uint32_t bytes_per_column = column_width * ytile_height;
 
    uint32_t y1 = MIN2(y3, ALIGN_UP(y0, 4));
    uint32_t y2 = MAX2(y1, ALIGN_DOWN(y3, 4));
 
-   uint32_t xo0 = (x0 % ytile_span) + (x0 / ytile_span) * bytes_per_column;
-   uint32_t xo1 = (x1 % ytile_span) + (x1 / ytile_span) * bytes_per_column;
+   uint32_t xinc_16, x_mask;
+   uint32_t yinc_1, yinc_4, y_mask;
+
+   uint32_t xo0, xo1, xo2;
+   uint32_t yo0, yo1, yo2;
+
+#define YF_128_X(x) (((x) & 0xF) | (((x) & 0x30) << 2) | (((x) & 0x40) << 3) | (((x) & 0x80) << 4))
+#define YF_32_X(x)  (((x) & 0xF) | (((x) & 0x10) << 3) | (((x) & 0x20) << 4) | (((x) & 0x40) << 5))
+#define YF_8_X(x)   (((x) & 0xF) | (((x) & 0x10) << 5) | (((x) & 0x20) << 6))
+#define Y0_X(x)     (((x) & 0xF) | (((x) & 0x70) << 5))
+
+#define YF_128_Y(y) ((((y) & 0x03) << 4) | (((y) & 0x04) << 6) | (((y) & 0x08) << 7))
+#define YF_32_Y(y)  ((((y) & 0x07) << 4) | (((y) & 0x08) << 5) | (((y) & 0x10) << 6))
+#define YF_8_Y(y)   ((((y) & 0x1F) << 4) | (((y) & 0x20) << 5))
+#define Y0_Y(y)     ((((y) & 0x1F) << 4))
+
+#define TILING_INIT(TILING)                           \
+   do {                                               \
+      x_mask = TILING ## _X(~0);                      \
+      y_mask = TILING ## _Y(~0);                      \
+      xo0 = TILING ## _X(x0);                         \
+      xo1 = TILING ## _X(x1);                         \
+      xo2 = TILING ## _X(x2);                         \
+      yo0 = TILING ## _Y(y0);                         \
+      yo1 = TILING ## _Y(y1);                         \
+      yo2 = TILING ## _Y(y2);                         \
+      xinc_16 = (TILING ## _X(16) | ~x_mask) & 0xFFF; \
+      yinc_1 = (TILING ## _Y(1) | ~y_mask) & 0xFFF;   \
+      yinc_4 = (TILING ## _Y(4) | ~y_mask) & 0xFFF;   \
+   } while (0)
+
+   if (tiling == ISL_TILING_Y0)
+      TILING_INIT(Y0);
+   else if (cpp == 16 || cpp == 8)
+      TILING_INIT(YF_128);
+   else if (cpp == 4 || cpp == 2)
+      TILING_INIT(YF_32);
+   else if (cpp == 1)
+      TILING_INIT(YF_8);
+   else
+      unreachable("not reached");
 
    /* Bit 9 of the destination offset control swizzling.
     * Only the X offset contributes to bit 9 of the total offset,
@@ -342,13 +434,15 @@ linear_to_ytiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
     */
    uint32_t swizzle0 = (xo0 >> 3) & swizzle_bit;
    uint32_t swizzle1 = (xo1 >> 3) & swizzle_bit;
+   if (tiling != ISL_TILING_Y0)
+      swizzle0 = swizzle1 = swizzle_bit = 0;
 
-   uint32_t x, yo;
+   uint32_t x, y, yo;
 
    src += (ptrdiff_t)y0 * src_pitch;
 
    if (y0 != y1) {
-      for (yo = y0 * column_width; yo < y1 * column_width; yo += column_width) {
+      for (y = y0, yo = yo0; y < y1; y++, yo = (yo + yinc_1) & y_mask) {
          uint32_t xo = xo1;
          uint32_t swizzle = swizzle1;
 
@@ -359,7 +453,7 @@ linear_to_ytiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
           */
          for (x = x1; x < x2; x += ytile_span) {
             mem_copy_align16(dst + ((xo + yo) ^ swizzle), src + x, ytile_span);
-            xo += bytes_per_column;
+            xo = (xo + xinc_16) & x_mask;
             swizzle ^= swizzle_bit;
          }
 
@@ -369,7 +463,7 @@ linear_to_ytiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
       }
    }
 
-   for (yo = y1 * column_width; yo < y2 * column_width; yo += 4 * column_width) {
+   for (y = y1, yo = yo1; y < y2; y += 4, yo = (yo + yinc_4) & y_mask) {
       uint32_t xo = xo1;
       uint32_t swizzle = swizzle1;
 
@@ -388,7 +482,7 @@ linear_to_ytiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
          mem_copy_align16(dst + ((xo + yo + 1 * column_width) ^ swizzle), src + x + 1 * src_pitch, ytile_span);
          mem_copy_align16(dst + ((xo + yo + 2 * column_width) ^ swizzle), src + x + 2 * src_pitch, ytile_span);
          mem_copy_align16(dst + ((xo + yo + 3 * column_width) ^ swizzle), src + x + 3 * src_pitch, ytile_span);
-         xo += bytes_per_column;
+         xo = (xo + xinc_16) & x_mask;
          swizzle ^= swizzle_bit;
       }
 
@@ -403,7 +497,7 @@ linear_to_ytiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
    }
 
    if (y2 != y3) {
-      for (yo = y2 * column_width; yo < y3 * column_width; yo += column_width) {
+      for (y = y2, yo = yo2; y < y3; y++, yo = (yo + yinc_1) & y_mask) {
          uint32_t xo = xo1;
          uint32_t swizzle = swizzle1;
 
@@ -414,7 +508,7 @@ linear_to_ytiled(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
           */
          for (x = x1; x < x2; x += ytile_span) {
             mem_copy_align16(dst + ((xo + yo) ^ swizzle), src + x, ytile_span);
-            xo += bytes_per_column;
+            xo = (xo + xinc_16) & x_mask;
             swizzle ^= swizzle_bit;
          }
 
@@ -478,28 +572,35 @@ ytiled_to_linear(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
                  char *dst, const char *src,
                  int32_t dst_pitch,
                  uint32_t swizzle_bit,
-                 UNUSED enum isl_tiling tiling,
-                 UNUSED int cpp,
+                 enum isl_tiling tiling,
+                 int cpp,
                  mem_copy_fn mem_copy,
                  mem_copy_fn mem_copy_align16)
 {
-   /* Y tiles consist of columns that are 'ytile_span' wide (and the same height
-    * as the tile).  Thus the destination offset for (x,y) is the sum of:
-    *   (x % column_width)                    // position within column
-    *   (x / column_width) * bytes_per_column // column number * bytes per column
-    *   y * column_width
-    *
-    * The copy destination offset for each range copied is the sum of
-    * an X offset 'xo0' or 'xo' and a Y offset 'yo.'
+   /* See comments in linear_to_ytiled about the theory of operation for Y
+    * tilings and the definition of the TILING_INIT macro used here.
     */
    const uint32_t column_width = ytile_span;
-   const uint32_t bytes_per_column = column_width * ytile_height;
 
    uint32_t y1 = MIN2(y3, ALIGN_UP(y0, 4));
    uint32_t y2 = MAX2(y1, ALIGN_DOWN(y3, 4));
 
-   uint32_t xo0 = (x0 % ytile_span) + (x0 / ytile_span) * bytes_per_column;
-   uint32_t xo1 = (x1 % ytile_span) + (x1 / ytile_span) * bytes_per_column;
+   uint32_t xinc_16, x_mask;
+   uint32_t yinc_1, yinc_4, y_mask;
+
+   uint32_t xo0, xo1, xo2;
+   uint32_t yo0, yo1, yo2;
+
+   if (tiling == ISL_TILING_Y0)
+      TILING_INIT(Y0);
+   else if (cpp == 16 || cpp == 8)
+      TILING_INIT(YF_128);
+   else if (cpp == 4 || cpp == 2)
+      TILING_INIT(YF_32);
+   else if (cpp == 1)
+      TILING_INIT(YF_8);
+   else
+      unreachable("not reached");
 
    /* Bit 9 of the destination offset control swizzling.
     * Only the X offset contributes to bit 9 of the total offset,
@@ -508,13 +609,15 @@ ytiled_to_linear(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
     */
    uint32_t swizzle0 = (xo0 >> 3) & swizzle_bit;
    uint32_t swizzle1 = (xo1 >> 3) & swizzle_bit;
+   if (tiling != ISL_TILING_Y0)
+      swizzle0 = swizzle1 = swizzle_bit = 0;
 
-   uint32_t x, yo;
+   uint32_t x, y, yo;
 
    dst += (ptrdiff_t)y0 * dst_pitch;
 
    if (y0 != y1) {
-      for (yo = y0 * column_width; yo < y1 * column_width; yo += column_width) {
+      for (y = y0, yo = yo0; y < y1; y++, yo = (yo + yinc_1) & y_mask) {
          uint32_t xo = xo1;
          uint32_t swizzle = swizzle1;
 
@@ -525,7 +628,7 @@ ytiled_to_linear(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
           */
          for (x = x1; x < x2; x += ytile_span) {
             mem_copy_align16(dst + x, src + ((xo + yo) ^ swizzle), ytile_span);
-            xo += bytes_per_column;
+            xo = (xo + xinc_16) & x_mask;
             swizzle ^= swizzle_bit;
          }
 
@@ -535,7 +638,7 @@ ytiled_to_linear(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
       }
    }
 
-   for (yo = y1 * column_width; yo < y2 * column_width; yo += 4 * column_width) {
+   for (y = y1, yo = yo1; y < y2; y += 4, yo = (yo + yinc_4) & y_mask) {
       uint32_t xo = xo1;
       uint32_t swizzle = swizzle1;
 
@@ -554,7 +657,7 @@ ytiled_to_linear(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
          mem_copy_align16(dst + x + 1 * dst_pitch, src + ((xo + yo + 1 * column_width) ^ swizzle), ytile_span);
          mem_copy_align16(dst + x + 2 * dst_pitch, src + ((xo + yo + 2 * column_width) ^ swizzle), ytile_span);
          mem_copy_align16(dst + x + 3 * dst_pitch, src + ((xo + yo + 3 * column_width) ^ swizzle), ytile_span);
-         xo += bytes_per_column;
+         xo = (xo + xinc_16) & x_mask;
          swizzle ^= swizzle_bit;
       }
 
@@ -569,7 +672,7 @@ ytiled_to_linear(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
    }
 
    if (y2 != y3) {
-      for (yo = y2 * column_width; yo < y3 * column_width; yo += column_width) {
+      for (y = y2, yo = yo2; y < y3; y++, yo = (yo + yinc_1) & y_mask) {
          uint32_t xo = xo1;
          uint32_t swizzle = swizzle1;
 
@@ -580,7 +683,7 @@ ytiled_to_linear(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
           */
          for (x = x1; x < x2; x += ytile_span) {
             mem_copy_align16(dst + x, src + ((xo + yo) ^ swizzle), ytile_span);
-            xo += bytes_per_column;
+            xo = (xo + xinc_16) & x_mask;
             swizzle ^= swizzle_bit;
          }
 
@@ -814,6 +917,24 @@ linear_to_tiled(uint32_t xt1, uint32_t xt2,
       span = ytile_span;
       tile_copy = linear_to_ytiled_faster;
       tile_addr = ytile_addr;
+   } else if (isl_tiling_is_std_y(tiling)) {
+      if (cpp == 16 || cpp == 8) {
+         tw = std_ytile128_width;
+         th = std_ytile128_height;
+         tile_addr = tiling == ISL_TILING_Ys ? ys128_addr : yf128_addr;
+      } else if (cpp == 4 || cpp == 2) {
+         tw = std_ytile32_width;
+         th = std_ytile32_height;
+         tile_addr = tiling == ISL_TILING_Ys ? ys32_addr : yf32_addr;
+      } else if (cpp == 1) {
+         tw = std_ytile8_width;
+         th = std_ytile8_height;
+         tile_addr = tiling == ISL_TILING_Ys ? ys8_addr : yf8_addr;
+      } else {
+         unreachable("not reached");
+      }
+      span = ytile_span;
+      tile_copy = linear_to_ytiled_faster;
    } else {
       unreachable("unsupported tiling");
    }
@@ -911,6 +1032,24 @@ tiled_to_linear(uint32_t xt1, uint32_t xt2,
       span = ytile_span;
       tile_copy = ytiled_to_linear_faster;
       tile_addr = ytile_addr;
+   } else if (isl_tiling_is_std_y(tiling)) {
+      if (cpp == 16 || cpp == 8) {
+         tw = std_ytile128_width;
+         th = std_ytile128_height;
+         tile_addr = tiling == ISL_TILING_Ys ? ys128_addr : yf128_addr;
+      } else if (cpp == 4 || cpp == 2) {
+         tw = std_ytile32_width;
+         th = std_ytile32_height;
+         tile_addr = tiling == ISL_TILING_Ys ? ys32_addr : yf32_addr;
+      } else if (cpp == 1) {
+         tw = std_ytile8_width;
+         th = std_ytile8_height;
+         tile_addr = tiling == ISL_TILING_Ys ? ys8_addr : yf8_addr;
+      } else {
+         unreachable("not reached");
+      }
+      span = ytile_span;
+      tile_copy = linear_to_ytiled_faster;
    } else {
       unreachable("unsupported tiling");
    }
