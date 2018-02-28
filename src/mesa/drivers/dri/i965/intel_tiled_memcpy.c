@@ -234,6 +234,25 @@ typedef void (*tile_copy_fn)(uint32_t x0, uint32_t x1, uint32_t x2, uint32_t x3,
                              int cpp,
                              mem_copy_fn mem_copy);
 
+/* a tile_addr_fn returns the address of a 4kbyte tile (or a 4kbyte sub-tile
+ * in larger tiling formats) which contains the points (x, y) within the given
+ * tiled image.
+ */
+typedef char* (*tile_addr_fn)(uint32_t x, uint32_t y, char *src,
+                              uint32_t src_pitch);
+
+static char *
+xtile_addr(uint32_t x, uint32_t y, char *src, uint32_t src_pitch)
+{
+   return src + (((y >> 3) * (src_pitch >> 9) + (x >> 9)) << 12);
+}
+
+static char *
+ytile_addr(uint32_t x, uint32_t y, char *src, uint32_t src_pitch)
+{
+   return src + (((y >> 5) * (src_pitch >> 7) + (x >> 7)) << 12);
+}
+
 /**
  * Copy texture data from linear to X tile layout.
  *
@@ -775,6 +794,7 @@ linear_to_tiled(uint32_t xt1, uint32_t xt2,
                 int cpp,
                 mem_copy_fn mem_copy)
 {
+   tile_addr_fn tile_addr;
    tile_copy_fn tile_copy;
    uint32_t xt0, xt3;
    uint32_t yt0, yt3;
@@ -787,11 +807,13 @@ linear_to_tiled(uint32_t xt1, uint32_t xt2,
       th = xtile_height;
       span = xtile_span;
       tile_copy = linear_to_xtiled_faster;
+      tile_addr = xtile_addr;
    } else if (tiling == ISL_TILING_Y0) {
       tw = ytile_width;
       th = ytile_height;
       span = ytile_span;
       tile_copy = linear_to_ytiled_faster;
+      tile_addr = ytile_addr;
    } else {
       unreachable("unsupported tiling");
    }
@@ -837,7 +859,7 @@ linear_to_tiled(uint32_t xt1, uint32_t xt2,
          /* Translate by (xt,yt) for single-tile copier. */
          tile_copy(x0-xt, x1-xt, x2-xt, x3-xt,
                    y0-yt, y1-yt,
-                   dst + (ptrdiff_t)xt * th  +  (ptrdiff_t)yt        * dst_pitch,
+                   tile_addr(xt, yt, dst, dst_pitch),
                    src + (ptrdiff_t)xt - xt1 + ((ptrdiff_t)yt - yt1) * src_pitch,
                    src_pitch,
                    swizzle_bit,
@@ -869,6 +891,7 @@ tiled_to_linear(uint32_t xt1, uint32_t xt2,
                 int cpp,
                 mem_copy_fn mem_copy)
 {
+   tile_addr_fn tile_addr;
    tile_copy_fn tile_copy;
    uint32_t xt0, xt3;
    uint32_t yt0, yt3;
@@ -881,11 +904,13 @@ tiled_to_linear(uint32_t xt1, uint32_t xt2,
       th = xtile_height;
       span = xtile_span;
       tile_copy = xtiled_to_linear_faster;
+      tile_addr = xtile_addr;
    } else if (tiling == ISL_TILING_Y0) {
       tw = ytile_width;
       th = ytile_height;
       span = ytile_span;
       tile_copy = ytiled_to_linear_faster;
+      tile_addr = ytile_addr;
    } else {
       unreachable("unsupported tiling");
    }
@@ -932,7 +957,7 @@ tiled_to_linear(uint32_t xt1, uint32_t xt2,
          tile_copy(x0-xt, x1-xt, x2-xt, x3-xt,
                    y0-yt, y1-yt,
                    dst + (ptrdiff_t)xt - xt1 + ((ptrdiff_t)yt - yt1) * dst_pitch,
-                   src + (ptrdiff_t)xt * th  +  (ptrdiff_t)yt        * src_pitch,
+                   tile_addr(xt, yt, (char*)src, src_pitch),
                    dst_pitch,
                    swizzle_bit,
                    tiling,
