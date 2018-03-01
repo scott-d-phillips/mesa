@@ -1492,20 +1492,21 @@ VkResult anv_CreateDevice(
 
    /* For the state pools we explicitly disable 48bit. */
    bo_flags = (physical_device->has_exec_async ? EXEC_OBJECT_ASYNC : 0) |
-              (physical_device->has_exec_capture ? EXEC_OBJECT_CAPTURE : 0);
+      (physical_device->supports_48bit_addresses ? EXEC_OBJECT_PINNED : 0) |
+      (physical_device->has_exec_capture ? EXEC_OBJECT_CAPTURE : 0);
 
    result = anv_state_pool_init(&device->dynamic_state_pool, device, 16384,
-                                bo_flags);
+                                1 * BLOCK_POOL_MEMFD_SIZE, bo_flags);
    if (result != VK_SUCCESS)
       goto fail_bo_cache;
 
    result = anv_state_pool_init(&device->instruction_state_pool, device, 16384,
-                                bo_flags);
+                                2 * BLOCK_POOL_MEMFD_SIZE, bo_flags);
    if (result != VK_SUCCESS)
       goto fail_dynamic_state_pool;
 
    result = anv_state_pool_init(&device->surface_state_pool, device, 4096,
-                                bo_flags);
+                                3 * BLOCK_POOL_MEMFD_SIZE, bo_flags);
    if (result != VK_SUCCESS)
       goto fail_instruction_state_pool;
 

@@ -244,11 +244,13 @@ VkResult
 anv_block_pool_init(struct anv_block_pool *pool,
                     struct anv_device *device,
                     uint32_t initial_size,
+                    uint64_t address,
                     uint64_t bo_flags)
 {
    VkResult result;
 
    pool->device = device;
+   pool->address = address;
    pool->bo_flags = bo_flags;
    anv_bo_init(&pool->bo, 0, 0);
 
@@ -402,6 +404,10 @@ anv_block_pool_expand_range(struct anv_block_pool *pool,
     * hard work for us.
     */
    anv_bo_init(&pool->bo, gem_handle, size);
+   if (pool->bo_flags & EXEC_OBJECT_PINNED) {
+      pool->bo.offset = pool->address + BLOCK_POOL_MEMFD_CENTER -
+         center_bo_offset;
+   }
    pool->bo.flags = pool->bo_flags;
    pool->bo.map = map;
 
@@ -611,10 +617,12 @@ VkResult
 anv_state_pool_init(struct anv_state_pool *pool,
                     struct anv_device *device,
                     uint32_t block_size,
+                    uint64_t address,
                     uint64_t bo_flags)
 {
    VkResult result = anv_block_pool_init(&pool->block_pool, device,
                                          block_size * 16,
+                                         address,
                                          bo_flags);
    if (result != VK_SUCCESS)
       return result;

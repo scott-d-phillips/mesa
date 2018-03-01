@@ -543,6 +543,10 @@ struct anv_block_state {
 struct anv_block_pool {
    struct anv_device *device;
 
+   /* Address at which the pool is pinned when EXEC_OBJECT_PINNED
+    * is set in bo_flags.
+    */
+   uint64_t address;
    uint64_t bo_flags;
 
    struct anv_bo bo;
@@ -644,6 +648,7 @@ struct anv_state_stream {
 VkResult anv_block_pool_init(struct anv_block_pool *pool,
                              struct anv_device *device,
                              uint32_t initial_size,
+                             uint64_t address,
                              uint64_t bo_flags);
 void anv_block_pool_finish(struct anv_block_pool *pool);
 int32_t anv_block_pool_alloc(struct anv_block_pool *pool,
@@ -654,6 +659,7 @@ int32_t anv_block_pool_alloc_back(struct anv_block_pool *pool,
 VkResult anv_state_pool_init(struct anv_state_pool *pool,
                              struct anv_device *device,
                              uint32_t block_size,
+                             uint64_t address,
                              uint64_t bo_flags);
 void anv_state_pool_finish(struct anv_state_pool *pool);
 struct anv_state anv_state_pool_alloc(struct anv_state_pool *pool,
