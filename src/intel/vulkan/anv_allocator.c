@@ -250,6 +250,22 @@ anv_block_pool_init(struct anv_block_pool *pool,
 
    pool->device = device;
    pool->bo_flags = bo_flags;
+
+   if (bo_flags & EXEC_OBJECT_PINNED) {
+      pool->offset = 0;
+      if (bo_flags & EXEC_OBJECT_SUPPORTS_48B_ADDRESS)
+         pool->offset = util_vma_heap_alloc(&device->vma_hi,
+                                            BLOCK_POOL_MEMFD_SIZE, 4096);
+
+      if (!pool->offset)
+         pool->offset = util_vma_heap_alloc(&device->vma_lo,
+                                            BLOCK_POOL_MEMFD_SIZE, 4096);
+
+      if (!pool->offset)
+         return vk_error(VK_ERROR_OUT_OF_DEVICE_MEMORY);
+
+      pool->offset = canonical_address(pool->offset);
+   }
    anv_bo_init(&pool->bo, 0, 0);
 
    pool->fd = memfd_create("block pool", MFD_CLOEXEC);
@@ -402,6 +418,10 @@ anv_block_pool_expand_range(struct anv_block_pool *pool,
     * hard work for us.
     */
    anv_bo_init(&pool->bo, gem_handle, size);
+   if (pool->bo_flags & EXEC_OBJECT_PINNED) {
+      pool->bo.offset = pool->offset + BLOCK_POOL_MEMFD_CENTER -
+         center_bo_offset;
+   }
    pool->bo.flags = pool->bo_flags;
    pool->bo.map = map;
 

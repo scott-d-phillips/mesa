@@ -1524,6 +1524,7 @@ VkResult anv_CreateDevice(
       uint64_t vma_hi_size = physical_device->memory.heaps[0].size;
       uint64_t vma_hi_end = (1ull << 47) + (100 << 20);
       uint64_t vma_hi_start = vma_hi_end - vma_hi_size;
+      vma_hi_size += 3 * BLOCK_POOL_MEMFD_SIZE;
       util_vma_heap_init(&device->vma_hi, vma_hi_start, vma_hi_size);
    }
 
@@ -1591,9 +1592,10 @@ VkResult anv_CreateDevice(
    if (result != VK_SUCCESS)
       goto fail_batch_bo_pool;
 
-   /* For the state pools we explicitly disable 48bit. */
-   bo_flags = (physical_device->has_exec_async ? EXEC_OBJECT_ASYNC : 0) |
-              (physical_device->has_exec_capture ? EXEC_OBJECT_CAPTURE : 0);
+   if (physical_device->has_exec_softpin)
+      bo_flags |= EXEC_OBJECT_PINNED;
+   else
+      bo_flags &= ~EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
 
    result = anv_state_pool_init(&device->dynamic_state_pool, device, 16384,
                                 bo_flags);

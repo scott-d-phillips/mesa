@@ -582,6 +582,8 @@ struct anv_block_pool {
 
    struct anv_bo bo;
 
+   uint64_t offset;
+
    /* The offset from the start of the bo to the "center" of the block
     * pool.  Pointers to allocated blocks are given by
     * bo.map + center_bo_offset + offsets.
