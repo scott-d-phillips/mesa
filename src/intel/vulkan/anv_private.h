@@ -46,7 +46,9 @@
 #include "blorp/blorp.h"
 #include "compiler/brw_compiler.h"
 #include "util/macros.h"
+#include "util/hash_table.h"
 #include "util/list.h"
+#include "util/set.h"
 #include "util/u_atomic.h"
 #include "util/u_vector.h"
 #include "vk_alloc.h"
@@ -992,6 +994,7 @@ struct anv_batch_bo {
    uint32_t                                     length;
 
    struct anv_reloc_list                        relocs;
+   struct set *                                 non_reloc_deps;
 };
 
 struct anv_batch {
@@ -1002,6 +1005,7 @@ struct anv_batch {
    void *                                       next;
 
    struct anv_reloc_list *                      relocs;
+   struct set *                                 non_reloc_deps;
 
    /* This callback is called (with the associated user data) in the event
     * that the batch runs out of space.
