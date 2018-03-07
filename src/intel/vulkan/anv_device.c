@@ -1499,6 +1499,7 @@ VkResult anv_CreateDevice(
 
    uint64_t bo_flags =
       (physical_device->supports_48bit_addresses ? EXEC_OBJECT_SUPPORTS_48B_ADDRESS : 0) |
+      (physical_device->supports_48bit_addresses ? EXEC_OBJECT_PINNED : 0) |
       (physical_device->has_exec_async ? EXEC_OBJECT_ASYNC : 0) |
       (physical_device->has_exec_capture ? EXEC_OBJECT_CAPTURE : 0);
 
@@ -1531,6 +1532,12 @@ VkResult anv_CreateDevice(
    result = anv_bo_init_new(&device->workaround_bo, device, 1024);
    if (result != VK_SUCCESS)
       goto fail_surface_state_pool;
+
+   if (physical_device->supports_48bit_addresses)
+      device->workaround_bo.flags |= EXEC_OBJECT_PINNED;
+   device->workaround_bo.offset = anv_vma_alloc(device,
+                                                device->workaround_bo.size,
+                                                device->workaround_bo.flags);
 
    anv_device_init_trivial_batch(device);
 
@@ -1798,6 +1805,12 @@ anv_vma_alloc(struct anv_device *device, uint64_t size, uint64_t flags)
    if (offset == 0)
       offset = util_vma_heap_alloc(&device->vma_lo, size, 4096);
 
+   /* canonicalize 48-bit address */
+   if (offset & 0x800000000000ull)
+      offset |= 0xffff000000000000ull;
+   else
+      offset &= 0x0000ffffffffffffull;
+
    return offset;
 }
 
@@ -1956,10 +1969,11 @@ VkResult anv_AllocateMemory(
    }
 
    assert(mem->type->heapIndex < pdevice->memory.heap_count);
-   if (pdevice->memory.heaps[mem->type->heapIndex].supports_48bit_addresses) {
+   if (pdevice->memory.heaps[mem->type->heapIndex].supports_48bit_addresses)
       mem->bo->flags |= EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
+
+   if (pdevice->supports_48bit_addresses)
       mem->bo->flags |= EXEC_OBJECT_PINNED;
-   }
 
    const struct wsi_memory_allocate_info *wsi_info =
       vk_find_struct_const(pAllocateInfo->pNext, WSI_MEMORY_ALLOCATE_INFO_MESA);

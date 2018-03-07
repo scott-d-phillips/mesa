@@ -1884,6 +1884,8 @@ struct anv_cmd_buffer {
    uint32_t                                     bt_next;
 
    struct anv_reloc_list                        surface_relocs;
+   struct set *                                 surface_non_reloc_deps;
+
    /** Last seen surface state block pool center bo offset */
    uint32_t                                     last_ss_pool_center;
 

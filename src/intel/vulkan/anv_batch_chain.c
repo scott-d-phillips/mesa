@@ -739,6 +739,15 @@ anv_cmd_buffer_init_batch_bo_chain(struct anv_cmd_buffer *cmd_buffer)
                                 &cmd_buffer->pool->alloc);
    if (result != VK_SUCCESS)
       goto fail_bt_blocks;
+
+   cmd_buffer->surface_non_reloc_deps =
+      _mesa_set_create(NULL, _mesa_hash_pointer, _mesa_key_pointer_equal);
+
+   if (!cmd_buffer->surface_non_reloc_deps) {
+      result = VK_ERROR_OUT_OF_HOST_MEMORY;
+      goto fail_bt_blocks;
+   }
+
    cmd_buffer->last_ss_pool_center = 0;
 
    result = anv_cmd_buffer_new_binding_table_block(cmd_buffer);
@@ -766,6 +775,8 @@ anv_cmd_buffer_fini_batch_bo_chain(struct anv_cmd_buffer *cmd_buffer)
    u_vector_finish(&cmd_buffer->bt_block_states);
 
    anv_reloc_list_finish(&cmd_buffer->surface_relocs, &cmd_buffer->pool->alloc);
+
+   _mesa_set_destroy(cmd_buffer->surface_non_reloc_deps, NULL);
 
    u_vector_finish(&cmd_buffer->seen_bbos);
 
@@ -800,6 +811,11 @@ anv_cmd_buffer_reset_batch_bo_chain(struct anv_cmd_buffer *cmd_buffer)
    cmd_buffer->bt_next = 0;
 
    cmd_buffer->surface_relocs.num_relocs = 0;
+   struct set_entry *entry;
+   set_foreach(cmd_buffer->surface_non_reloc_deps, entry) {
+      _mesa_set_remove(cmd_buffer->surface_non_reloc_deps, entry);
+   }
+
    cmd_buffer->last_ss_pool_center = 0;
 
    /* Reset the list of seen buffers */
@@ -1170,19 +1186,35 @@ write_reloc(const struct anv_device *device, void *p, uint64_t v, bool flush)
 static void
 adjust_relocations_from_state_pool(struct anv_state_pool *pool,
                                    struct anv_reloc_list *relocs,
+                                   struct set *non_reloc_deps,
                                    uint32_t last_pool_center_bo_offset)
 {
    assert(last_pool_center_bo_offset <= pool->block_pool.center_bo_offset);
    uint32_t delta = pool->block_pool.center_bo_offset - last_pool_center_bo_offset;
 
-   for (size_t i = 0; i < relocs->num_relocs; i++) {
+   size_t j = 0;
+   for (size_t i = 0; i < relocs->num_relocs; i++, j++) {
+      if (i != j) {
+         relocs->relocs[j] = relocs->relocs[i];
+         relocs->reloc_bos[j] = relocs->reloc_bos[i];
+      }
+
       /* All of the relocations from this block pool to other BO's should
        * have been emitted relative to the surface block pool center.  We
        * need to add the center offset to make them relative to the
        * beginning of the actual GEM bo.
        */
       relocs->relocs[i].offset += delta;
+      if (relocs->reloc_bos[i]->flags & EXEC_OBJECT_PINNED) {
+         write_reloc(pool->block_pool.device,
+                     pool->block_pool.bo.map + relocs->relocs[i].offset,
+                     relocs->reloc_bos[i]->offset +
+                     relocs->relocs[i].delta, false);
+         j--;
+         _mesa_set_add(non_reloc_deps, relocs->reloc_bos[i]);
+      }
    }
+   relocs->num_relocs = j;
 }
 
 static void
@@ -1354,9 +1386,11 @@ setup_execbuf_for_cmd_buffer(struct anv_execbuf *execbuf,
       &cmd_buffer->device->surface_state_pool;
 
    adjust_relocations_from_state_pool(ss_pool, &cmd_buffer->surface_relocs,
+                                      cmd_buffer->surface_non_reloc_deps,
                                       cmd_buffer->last_ss_pool_center);
    VkResult result = anv_execbuf_add_bo(execbuf, &ss_pool->block_pool.bo,
-                                        &cmd_buffer->surface_relocs, NULL, 0,
+                                        &cmd_buffer->surface_relocs,
+                                        cmd_buffer->surface_non_reloc_deps, 0,
                                         &cmd_buffer->device->alloc);
    if (result != VK_SUCCESS)
       return result;
