@@ -127,7 +127,7 @@ anv_physical_device_init_heaps(struct anv_physical_device *device, int fd)
       heap_size = 2ull << 30;
    }
 
-   if (heap_size <= 3ull * (1ull << 30)) {
+   if (!device->supports_48bit_addresses || heap_size <= 1ull << 30) {
       /* In this case, everything fits nicely into the 32-bit address space,
        * so there's no need for supporting 48bit addresses on client-allocated
        * memory objects.
@@ -1248,6 +1248,14 @@ anv_device_init_trivial_batch(struct anv_device *device)
    if (device->instance->physicalDevice.has_exec_async)
       device->trivial_batch_bo.flags |= EXEC_OBJECT_ASYNC;
 
+   if (device->instance->physicalDevice.supports_48bit_addresses) {
+      device->trivial_batch_bo.flags |= EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
+      device->trivial_batch_bo.flags |= EXEC_OBJECT_PINNED;
+   }
+
+   device->trivial_batch_bo.offset =
+      anv_vma_alloc(device, 4096, device->trivial_batch_bo.flags);
+
    void *map = anv_gem_mmap(device, device->trivial_batch_bo.gem_handle,
                             0, 4096, 0);
 
@@ -1424,6 +1432,16 @@ VkResult anv_CreateDevice(
    if (device->context_id == -1) {
       result = vk_error(VK_ERROR_INITIALIZATION_FAILED);
       goto fail_fd;
+   }
+
+   if (physical_device->supports_48bit_addresses) {
+      util_vma_heap_init(&device->vma_lo, 4096,
+                         MIN2((1ull << 30) - 4096,
+                              physical_device->memory.heaps[1].size));
+      uint64_t vma_hi_start = ((1ull << 47) + (100 << 20)) -
+         physical_device->memory.heaps[0].size;
+      util_vma_heap_init(&device->vma_hi, vma_hi_start,
+                         physical_device->memory.heaps[0].size);
    }
 
    /* As per spec, the driver implementation may deny requests to acquire
@@ -1767,6 +1785,35 @@ VkResult anv_DeviceWaitIdle(
    return anv_device_submit_simple_batch(device, &batch);
 }
 
+uint64_t
+anv_vma_alloc(struct anv_device *device, uint64_t size, uint64_t flags)
+{
+   if (!(flags & EXEC_OBJECT_PINNED))
+      return -1;
+
+   uint64_t offset = 0;
+   if (flags & EXEC_OBJECT_SUPPORTS_48B_ADDRESS)
+      offset = util_vma_heap_alloc(&device->vma_hi, size, 4096);
+
+   if (offset == 0)
+      offset = util_vma_heap_alloc(&device->vma_lo, size, 4096);
+
+   return offset;
+}
+
+void
+anv_vma_free(struct anv_device *device, uint64_t offset, uint64_t size,
+             uint64_t flags)
+{
+   if (!(flags & EXEC_OBJECT_PINNED))
+      return;
+
+   if (offset > 1ull << 32)
+      util_vma_heap_free(&device->vma_hi, offset, size);
+   else
+      util_vma_heap_free(&device->vma_lo, offset, size);
+}
+
 VkResult
 anv_bo_init_new(struct anv_bo *bo, struct anv_device *device, uint64_t size)
 {
@@ -1909,8 +1956,10 @@ VkResult anv_AllocateMemory(
    }
 
    assert(mem->type->heapIndex < pdevice->memory.heap_count);
-   if (pdevice->memory.heaps[mem->type->heapIndex].supports_48bit_addresses)
+   if (pdevice->memory.heaps[mem->type->heapIndex].supports_48bit_addresses) {
       mem->bo->flags |= EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
+      mem->bo->flags |= EXEC_OBJECT_PINNED;
+   }
 
    const struct wsi_memory_allocate_info *wsi_info =
       vk_find_struct_const(pAllocateInfo->pNext, WSI_MEMORY_ALLOCATE_INFO_MESA);
@@ -1922,6 +1971,14 @@ VkResult anv_AllocateMemory(
       mem->bo->flags |= EXEC_OBJECT_WRITE;
    } else if (pdevice->has_exec_async) {
       mem->bo->flags |= EXEC_OBJECT_ASYNC;
+   }
+
+   mem->bo->offset = anv_vma_alloc(device, pAllocateInfo->allocationSize,
+                                   mem->bo->flags);
+   if (!mem->bo->offset) {
+      anv_bo_cache_release(device, &device->bo_cache, mem->bo);
+      result = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+      goto fail;
    }
 
    *pMem = anv_device_memory_to_handle(mem);

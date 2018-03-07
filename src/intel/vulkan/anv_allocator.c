@@ -1025,8 +1025,15 @@ anv_bo_pool_alloc(struct anv_bo_pool *pool, struct anv_bo *bo, uint32_t size)
 
    assert(new_bo.size == pow2_size);
 
+   new_bo.offset = anv_vma_alloc(pool->device, pow2_size, new_bo.flags);
+   if (new_bo.offset == 0) {
+      anv_gem_close(pool->device, new_bo.gem_handle);
+      return vk_error(VK_ERROR_OUT_OF_DEVICE_MEMORY);
+   }
+
    new_bo.map = anv_gem_mmap(pool->device, new_bo.gem_handle, 0, pow2_size, 0);
    if (new_bo.map == MAP_FAILED) {
+      anv_vma_free(pool->device, new_bo.offset, pow2_size, new_bo.flags);
       anv_gem_close(pool->device, new_bo.gem_handle);
       return vk_error(VK_ERROR_MEMORY_MAP_FAILED);
    }
@@ -1063,6 +1070,12 @@ void
 anv_scratch_pool_init(struct anv_device *device, struct anv_scratch_pool *pool)
 {
    memset(pool, 0, sizeof(*pool));
+
+   if (device->instance->physicalDevice.has_exec_async)
+      pool->bo_flags |= EXEC_OBJECT_ASYNC;
+
+   if (device->instance->physicalDevice.supports_48bit_addresses)
+      pool->bo_flags |= EXEC_OBJECT_PINNED;
 }
 
 void
@@ -1154,10 +1167,8 @@ anv_scratch_pool_alloc(struct anv_device *device, struct anv_scratch_pool *pool,
     *
     * so nothing will ever touch the top page.
     */
-   assert(!(bo->bo.flags & EXEC_OBJECT_SUPPORTS_48B_ADDRESS));
-
-   if (device->instance->physicalDevice.has_exec_async)
-      bo->bo.flags |= EXEC_OBJECT_ASYNC;
+   bo->bo.flags = pool->bo_flags & ~EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
+   bo->bo.offset = anv_vma_alloc(device, size, bo->bo.flags);
 
    /* Set the exists last because it may be read by other threads */
    __sync_synchronize();

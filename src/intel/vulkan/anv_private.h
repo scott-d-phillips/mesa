@@ -51,6 +51,7 @@
 #include "util/set.h"
 #include "util/u_atomic.h"
 #include "util/u_vector.h"
+#include "util/vma.h"
 #include "vk_alloc.h"
 #include "vk_debug_report.h"
 
@@ -683,6 +684,7 @@ struct anv_bo_pool {
    struct anv_device *device;
 
    uint64_t bo_flags;
+   struct util_vma_heap *heap;
 
    void *free_list[16];
 };
@@ -701,6 +703,7 @@ struct anv_scratch_bo {
 
 struct anv_scratch_pool {
    /* Indexed by Per-Thread Scratch Space number (the hardware value) and stage */
+   uint64_t bo_flags;
    struct anv_scratch_bo bos[16][MESA_SHADER_STAGES];
 };
 
@@ -872,6 +875,9 @@ struct anv_device {
     struct anv_device_extension_table           enabled_extensions;
     struct anv_dispatch_table                   dispatch;
 
+    struct util_vma_heap                        vma_lo;
+    struct util_vma_heap                        vma_hi;
+
     struct anv_bo_pool                          batch_bo_pool;
 
     struct anv_bo_cache                         bo_cache;
@@ -965,7 +971,13 @@ int anv_gem_syncobj_wait(struct anv_device *device,
                          uint32_t *handles, uint32_t num_handles,
                          int64_t abs_timeout_ns, bool wait_all);
 
-VkResult anv_bo_init_new(struct anv_bo *bo, struct anv_device *device, uint64_t size);
+uint64_t anv_vma_alloc(struct anv_device *device, uint64_t size,
+                       uint64_t flags);
+void anv_vma_free(struct anv_device *device, uint64_t offset, uint64_t size,
+                  uint64_t flags);
+
+VkResult anv_bo_init_new(struct anv_bo *bo, struct anv_device *device,
+                         uint64_t size);
 
 struct anv_reloc_list {
    uint32_t                                     num_relocs;
