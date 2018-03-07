@@ -49,6 +49,7 @@
 #include "util/list.h"
 #include "util/u_atomic.h"
 #include "util/u_vector.h"
+#include "util/vma.h"
 #include "vk_alloc.h"
 #include "vk_debug_report.h"
 
@@ -802,6 +803,7 @@ struct anv_physical_device {
     bool                                        has_exec_async;
     bool                                        has_exec_capture;
     bool                                        has_exec_fence;
+    bool                                        has_exec_softpin;
     bool                                        has_syncobj;
     bool                                        has_syncobj_wait;
     bool                                        has_context_priority;
@@ -898,6 +900,10 @@ struct anv_device {
     struct anv_device_extension_table           enabled_extensions;
     struct anv_dispatch_table                   dispatch;
 
+    pthread_mutex_t                             vma_mutex;
+    struct util_vma_heap                        vma_lo;
+    struct util_vma_heap                        vma_hi;
+
     struct anv_bo_pool                          batch_bo_pool;
 
     struct anv_bo_cache                         bo_cache;
@@ -989,6 +995,9 @@ bool anv_gem_supports_syncobj_wait(int fd);
 int anv_gem_syncobj_wait(struct anv_device *device,
                          uint32_t *handles, uint32_t num_handles,
                          int64_t abs_timeout_ns, bool wait_all);
+
+bool anv_vma_alloc(struct anv_device *device, struct anv_bo *bo);
+void anv_vma_free(struct anv_device *device, struct anv_bo *bo);
 
 VkResult anv_bo_init_new(struct anv_bo *bo, struct anv_device *device, uint64_t size);
 

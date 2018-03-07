@@ -371,6 +371,8 @@ anv_physical_device_init(struct anv_physical_device *device,
    device->has_exec_async = anv_gem_get_param(fd, I915_PARAM_HAS_EXEC_ASYNC);
    device->has_exec_capture = anv_gem_get_param(fd, I915_PARAM_HAS_EXEC_CAPTURE);
    device->has_exec_fence = anv_gem_get_param(fd, I915_PARAM_HAS_EXEC_FENCE);
+   device->has_exec_softpin = anv_gem_get_param(fd, I915_PARAM_HAS_EXEC_SOFTPIN)
+      && device->supports_48bit_addresses;
    device->has_syncobj = anv_gem_get_param(fd, I915_PARAM_HAS_EXEC_FENCE_ARRAY);
    device->has_syncobj_wait = device->has_syncobj &&
                               anv_gem_supports_syncobj_wait(fd);
@@ -1509,6 +1511,22 @@ VkResult anv_CreateDevice(
       goto fail_fd;
    }
 
+   if (physical_device->has_exec_softpin) {
+      if (pthread_mutex_init(&device->vma_mutex, NULL) != 0) {
+         result = vk_error(VK_ERROR_INITIALIZATION_FAILED);
+         goto fail_fd;
+      }
+
+      util_vma_heap_init(&device->vma_lo, 4096,
+                         MIN2((1ull << 30) - 4096,
+                              physical_device->memory.heaps[1].size));
+
+      uint64_t vma_hi_size = physical_device->memory.heaps[0].size;
+      uint64_t vma_hi_end = (1ull << 47) + (100 << 20);
+      uint64_t vma_hi_start = vma_hi_end - vma_hi_size;
+      util_vma_heap_init(&device->vma_hi, vma_hi_start, vma_hi_size);
+   }
+
    /* As per spec, the driver implementation may deny requests to acquire
     * a priority above the default priority (MEDIUM) if the caller does not
     * have sufficient privileges. In this scenario VK_ERROR_NOT_PERMITTED_EXT
@@ -1862,6 +1880,47 @@ VkResult anv_DeviceWaitIdle(
    anv_batch_emit(&batch, GEN7_MI_NOOP, noop);
 
    return anv_device_submit_simple_batch(device, &batch);
+}
+
+bool
+anv_vma_alloc(struct anv_device *device, struct anv_bo *bo)
+{
+   if (!(bo->flags & EXEC_OBJECT_PINNED))
+      return true;
+
+   pthread_mutex_lock(&device->vma_mutex);
+
+   bo->offset = 0;
+
+   if (bo->flags & EXEC_OBJECT_SUPPORTS_48B_ADDRESS)
+      bo->offset = canonical_address(util_vma_heap_alloc(&device->vma_hi,
+                                                         bo->size, 4096));
+
+   if (bo->offset == 0)
+      bo->offset = canonical_address(util_vma_heap_alloc(&device->vma_lo,
+                                                         bo->size, 4096));
+
+   pthread_mutex_unlock(&device->vma_mutex);
+
+   return bo->offset != 0;
+}
+
+void
+anv_vma_free(struct anv_device *device, struct anv_bo *bo)
+{
+   if (!(bo->flags & EXEC_OBJECT_PINNED))
+      return;
+
+   pthread_mutex_lock(&device->vma_mutex);
+
+   if (bo->offset >= 1ull << 32)
+      util_vma_heap_free(&device->vma_hi, bo->offset, bo->size);
+   else
+      util_vma_heap_free(&device->vma_lo, bo->offset, bo->size);
+
+   pthread_mutex_unlock(&device->vma_mutex);
+
+   bo->offset = 0;
 }
 
 VkResult
