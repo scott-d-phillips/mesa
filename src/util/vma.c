@@ -140,7 +140,7 @@ util_vma_heap_alloc(struct util_vma_heap *heap,
       /* We allocated in the middle.  We need to split the old hole into two
        * holes, one high and one low.
        */
-      struct util_vma_hole *high_hole = calloc(sizeof(*hole), 1);
+      struct util_vma_hole *high_hole = calloc(1, sizeof(*hole));
       high_hole->offset = offset + size;
       high_hole->size = waste;
 
@@ -216,11 +216,10 @@ util_vma_heap_free(struct util_vma_heap *heap,
       high_hole->size += size;
    } else {
       /* Neither hole is adjacent; make a new one */
-      struct util_vma_hole *hole =
-         LIST_ENTRY(struct util_vma_hole, heap->holes.next, link);
+      struct util_vma_hole *hole = calloc(1, sizeof(*hole));
 
       hole->offset = offset;
-      hole->size = offset;
+      hole->size = size;
 
       /* Add it after the high hole so we maintain high-to-low ordering */
       if (high_hole)
