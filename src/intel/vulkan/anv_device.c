@@ -1435,6 +1435,11 @@ VkResult anv_CreateDevice(
    }
 
    if (physical_device->supports_48bit_addresses) {
+      if (pthread_mutex_init(&device->vma_mutex, NULL) != 0) {
+         result = vk_error(VK_ERROR_INITIALIZATION_FAILED);
+         goto fail_fd;
+      }
+
       util_vma_heap_init(&device->vma_lo, 4096,
                          MIN2((1ull << 30) - 4096,
                               physical_device->memory.heaps[1].size));
@@ -1798,6 +1803,8 @@ anv_vma_alloc(struct anv_device *device, uint64_t size, uint64_t flags)
    if (!(flags & EXEC_OBJECT_PINNED))
       return -1;
 
+   pthread_mutex_lock(&device->vma_mutex);
+
    uint64_t offset = 0;
    if (flags & EXEC_OBJECT_SUPPORTS_48B_ADDRESS)
       offset = util_vma_heap_alloc(&device->vma_hi, size, 4096);
@@ -1811,6 +1818,8 @@ anv_vma_alloc(struct anv_device *device, uint64_t size, uint64_t flags)
    else
       offset &= 0x0000ffffffffffffull;
 
+   pthread_mutex_unlock(&device->vma_mutex);
+
    return offset;
 }
 
@@ -1821,10 +1830,14 @@ anv_vma_free(struct anv_device *device, uint64_t offset, uint64_t size,
    if (!(flags & EXEC_OBJECT_PINNED))
       return;
 
+   pthread_mutex_lock(&device->vma_mutex);
+
    if (offset > 1ull << 32)
       util_vma_heap_free(&device->vma_hi, offset, size);
    else
       util_vma_heap_free(&device->vma_lo, offset, size);
+
+   pthread_mutex_unlock(&device->vma_mutex);
 }
 
 VkResult

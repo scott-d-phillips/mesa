@@ -875,6 +875,7 @@ struct anv_device {
     struct anv_device_extension_table           enabled_extensions;
     struct anv_dispatch_table                   dispatch;
 
+    pthread_mutex_t                             vma_mutex;
     struct util_vma_heap                        vma_lo;
     struct util_vma_heap                        vma_hi;
 

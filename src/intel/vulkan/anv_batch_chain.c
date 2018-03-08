@@ -356,8 +356,12 @@ anv_batch_bo_start(struct anv_batch_bo *bbo, struct anv_batch *batch,
    batch->next = batch->start = bbo->bo.map;
    batch->end = bbo->bo.map + bbo->bo.size - batch_padding;
    batch->relocs = &bbo->relocs;
-   batch->non_reloc_deps = bbo->non_reloc_deps;
    bbo->relocs.num_relocs = 0;
+   batch->non_reloc_deps = bbo->non_reloc_deps;
+   struct set_entry *entry;
+   set_foreach(bbo->non_reloc_deps, entry) {
+      _mesa_set_remove(bbo->non_reloc_deps, entry);
+   }
 }
 
 static void
