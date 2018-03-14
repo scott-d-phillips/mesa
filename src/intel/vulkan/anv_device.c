@@ -1612,9 +1612,32 @@ VkResult anv_CreateDevice(
    if (result != VK_SUCCESS)
       goto fail_instruction_state_pool;
 
+   device->use_separate_binding_table_pool = !!(bo_flags & EXEC_OBJECT_PINNED);
+
+   if (device->use_separate_binding_table_pool) {
+      result = anv_state_pool_init(&device->binding_table_pool, device, 4096,
+                                   bo_flags);
+      if (result != VK_SUCCESS)
+         goto fail_surface_state_pool;
+
+      if (device->surface_state_pool.block_pool.offset <
+          device->binding_table_pool.block_pool.offset) {
+
+         uint64_t tmp;
+         tmp = device->surface_state_pool.block_pool.offset;
+         device->surface_state_pool.block_pool.offset =
+            device->binding_table_pool.block_pool.offset;
+         device->binding_table_pool.block_pool.offset = tmp;
+         tmp = device->surface_state_pool.block_pool.bo.offset;
+         device->surface_state_pool.block_pool.bo.offset =
+            device->binding_table_pool.block_pool.bo.offset;
+         device->binding_table_pool.block_pool.bo.offset = tmp;
+      }
+   }
+
    result = anv_bo_init_new(&device->workaround_bo, device, 1024);
    if (result != VK_SUCCESS)
-      goto fail_surface_state_pool;
+      goto fail_binding_table_pool;
 
    anv_device_init_trivial_batch(device);
 
@@ -1662,6 +1685,9 @@ VkResult anv_CreateDevice(
    anv_scratch_pool_finish(device, &device->scratch_pool);
    anv_gem_munmap(device->workaround_bo.map, device->workaround_bo.size);
    anv_gem_close(device, device->workaround_bo.gem_handle);
+ fail_binding_table_pool:
+   if (device->use_separate_binding_table_pool)
+      anv_state_pool_finish(&device->binding_table_pool);
  fail_surface_state_pool:
    anv_state_pool_finish(&device->surface_state_pool);
  fail_instruction_state_pool:

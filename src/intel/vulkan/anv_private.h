@@ -914,6 +914,9 @@ struct anv_device {
     struct anv_state_pool                       instruction_state_pool;
     struct anv_state_pool                       surface_state_pool;
 
+    bool                                        use_separate_binding_table_pool;
+    struct anv_state_pool                       binding_table_pool;
+
     struct anv_bo                               workaround_bo;
     struct anv_bo                               trivial_batch_bo;
 
@@ -932,6 +935,39 @@ struct anv_device {
     pthread_cond_t                              queue_submit;
     bool                                        lost;
 };
+
+static inline struct anv_bo*
+anv_binding_table_pool_bo(struct anv_device *device) {
+   if (device->use_separate_binding_table_pool)
+      return &device->binding_table_pool.block_pool.bo;
+   else
+      return &device->surface_state_pool.block_pool.bo;
+}
+
+static inline void*
+anv_binding_table_pool_map(struct anv_device *device) {
+   if (device->use_separate_binding_table_pool)
+      return device->binding_table_pool.block_pool.map;
+   else
+      return device->surface_state_pool.block_pool.map;
+}
+
+static inline struct anv_state
+anv_binding_table_pool_alloc(struct anv_device *device) {
+   if (device->use_separate_binding_table_pool)
+      return anv_state_pool_alloc(&device->binding_table_pool,
+                                  device->binding_table_pool.block_size, 0);
+   else
+      return anv_state_pool_alloc_back(&device->surface_state_pool);
+}
+
+static inline void
+anv_binding_table_pool_free(struct anv_device *device, struct anv_state state) {
+   if (device->use_separate_binding_table_pool)
+      anv_state_pool_free(&device->binding_table_pool, state);
+   else
+      anv_state_pool_free(&device->surface_state_pool, state);
+}
 
 static void inline
 anv_state_flush(struct anv_device *device, struct anv_state state)
