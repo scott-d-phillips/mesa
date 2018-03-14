@@ -1326,6 +1326,11 @@ anv_device_init_trivial_batch(struct anv_device *device)
    if (device->instance->physicalDevice.has_exec_async)
       device->trivial_batch_bo.flags |= EXEC_OBJECT_ASYNC;
 
+   if (device->instance->physicalDevice.use_softpin)
+      device->trivial_batch_bo.flags |= EXEC_OBJECT_PINNED;
+
+   anv_vma_alloc(device, &device->trivial_batch_bo);
+
    void *map = anv_gem_mmap(device, device->trivial_batch_bo.gem_handle,
                             0, 4096, 0);
 
@@ -1607,7 +1612,8 @@ VkResult anv_CreateDevice(
    uint64_t bo_flags =
       (physical_device->supports_48bit_addresses ? EXEC_OBJECT_SUPPORTS_48B_ADDRESS : 0) |
       (physical_device->has_exec_async ? EXEC_OBJECT_ASYNC : 0) |
-      (physical_device->has_exec_capture ? EXEC_OBJECT_CAPTURE : 0);
+      (physical_device->has_exec_capture ? EXEC_OBJECT_CAPTURE : 0) |
+      (physical_device->use_softpin ? EXEC_OBJECT_PINNED : 0);
 
    anv_bo_pool_init(&device->batch_bo_pool, device, bo_flags);
 
@@ -1615,9 +1621,7 @@ VkResult anv_CreateDevice(
    if (result != VK_SUCCESS)
       goto fail_batch_bo_pool;
 
-   if (physical_device->use_softpin)
-      bo_flags |= EXEC_OBJECT_PINNED;
-   else
+   if (!physical_device->use_softpin)
       bo_flags &= ~EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
 
    result = anv_state_pool_init(&device->dynamic_state_pool, device,
@@ -1653,6 +1657,12 @@ VkResult anv_CreateDevice(
    result = anv_bo_init_new(&device->workaround_bo, device, 1024);
    if (result != VK_SUCCESS)
       goto fail_binding_table_pool;
+
+   if (physical_device->use_softpin)
+      device->workaround_bo.flags |= EXEC_OBJECT_PINNED;
+
+   if (!anv_vma_alloc(device, &device->workaround_bo))
+      goto fail_workaround_bo;
 
    anv_device_init_trivial_batch(device);
 
@@ -1752,8 +1762,10 @@ void anv_DestroyDevice(
    anv_scratch_pool_finish(device, &device->scratch_pool);
 
    anv_gem_munmap(device->workaround_bo.map, device->workaround_bo.size);
+   anv_vma_free(device, &device->workaround_bo);
    anv_gem_close(device, device->workaround_bo.gem_handle);
 
+   anv_vma_free(device, &device->trivial_batch_bo);
    anv_gem_close(device, device->trivial_batch_bo.gem_handle);
    if (device->info.gen >= 10)
       anv_gem_close(device, device->hiz_clear_bo.gem_handle);
@@ -2110,6 +2122,18 @@ VkResult anv_AllocateMemory(
    assert(mem->type->heapIndex < pdevice->memory.heap_count);
    if (pdevice->memory.heaps[mem->type->heapIndex].supports_48bit_addresses)
       mem->bo->flags |= EXEC_OBJECT_SUPPORTS_48B_ADDRESS;
+
+   if (pdevice->use_softpin) {
+      mem->bo->flags |= EXEC_OBJECT_PINNED;
+      if (mem->bo->offset == -1) {
+         if (!anv_vma_alloc(device, mem->bo)) {
+            result = vk_errorf(device->instance, NULL,
+                               VK_ERROR_OUT_OF_DEVICE_MEMORY,
+                               "failed to allocate virtual address for BO");
+            goto fail;
+         }
+      }
+   }
 
    const struct wsi_memory_allocate_info *wsi_info =
       vk_find_struct_const(pAllocateInfo->pNext, WSI_MEMORY_ALLOCATE_INFO_MESA);
