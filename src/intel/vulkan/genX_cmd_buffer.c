@@ -167,15 +167,20 @@ genX(cmd_buffer_emit_state_base_address)(struct anv_cmd_buffer *cmd_buffer)
 static void
 add_surface_state_reloc(struct anv_cmd_buffer *cmd_buffer,
                         struct anv_state state,
-                        struct anv_bo *bo, uint32_t offset)
+                        struct anv_bo *bo, uint32_t delta)
 {
    const struct isl_device *isl_dev = &cmd_buffer->device->isl_dev;
 
+   uint32_t offset = state.offset + isl_dev->ss.addr_offset;
    VkResult result =
       anv_reloc_list_add(&cmd_buffer->surface_relocs, &cmd_buffer->pool->alloc,
-                         state.offset + isl_dev->ss.addr_offset, bo, offset);
+                         offset, bo, delta);
    if (result != VK_SUCCESS)
       anv_batch_set_error(&cmd_buffer->batch, result);
+
+   void *dest = cmd_buffer->device->surface_state_pool.block_pool.map +
+      offset;
+   write_reloc(cmd_buffer->device, dest, bo->offset + delta, false);
 }
 
 static void
@@ -192,13 +197,19 @@ add_image_view_relocs(struct anv_cmd_buffer *cmd_buffer,
                            image->planes[image_plane].bo, state.address);
 
    if (state.aux_address) {
+      uint32_t offset = state.state.offset + isl_dev->ss.aux_addr_offset;
       VkResult result =
          anv_reloc_list_add(&cmd_buffer->surface_relocs,
                             &cmd_buffer->pool->alloc,
-                            state.state.offset + isl_dev->ss.aux_addr_offset,
+                            offset,
                             image->planes[image_plane].bo, state.aux_address);
       if (result != VK_SUCCESS)
          anv_batch_set_error(&cmd_buffer->batch, result);
+
+      void *dest = cmd_buffer->device->surface_state_pool.block_pool.map +
+         offset;
+      uint64_t val = image->planes[image_plane].bo->offset + state.aux_address;
+      write_reloc(cmd_buffer->device, dest, val, false);
    }
 }
 

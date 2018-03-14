@@ -430,6 +430,7 @@ anv_batch_bo_list_clone(const struct list_head *list,
                         struct list_head *new_list)
 {
    VkResult result = VK_SUCCESS;
+   struct anv_device *device = cmd_buffer->device;
 
    list_inithead(new_list);
 
@@ -448,8 +449,14 @@ anv_batch_bo_list_clone(const struct list_head *list,
           * as it will always be the last relocation in the list.
           */
          uint32_t last_idx = prev_bbo->relocs.num_relocs - 1;
-         assert(prev_bbo->relocs.reloc_bos[last_idx] == &bbo->bo);
-         prev_bbo->relocs.reloc_bos[last_idx] = &new_bbo->bo;
+         if (last_idx == -1) {
+            write_reloc(device, prev_bbo->bo.map + prev_bbo->length -
+                        (device->info.gen >= 8 ? 8 : 4), new_bbo->bo.offset,
+                        false);
+         } else {
+            assert(prev_bbo->relocs.reloc_bos[last_idx] == &bbo->bo);
+            prev_bbo->relocs.reloc_bos[last_idx] = &new_bbo->bo;
+         }
       }
 
       prev_bbo = new_bbo;
@@ -1146,22 +1153,6 @@ anv_cmd_buffer_process_relocs(struct anv_cmd_buffer *cmd_buffer,
 {
    for (size_t i = 0; i < list->num_relocs; i++)
       list->relocs[i].target_handle = list->reloc_bos[i]->index;
-}
-
-static void
-write_reloc(const struct anv_device *device, void *p, uint64_t v, bool flush)
-{
-   unsigned reloc_size = 0;
-   if (device->info.gen >= 8) {
-      reloc_size = sizeof(uint64_t);
-      *(uint64_t *)p = canonical_address(v);
-   } else {
-      reloc_size = sizeof(uint32_t);
-      *(uint32_t *)p = v;
-   }
-
-   if (flush && !device->info.has_llc)
-      gen_flush_range(p, reloc_size);
 }
 
 static void

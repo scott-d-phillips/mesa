@@ -996,6 +996,7 @@ anv_bo_pool_finish(struct anv_bo_pool *pool)
          struct bo_pool_bo_link link_copy = VG_NOACCESS_READ(link);
 
          anv_gem_munmap(link_copy.bo.map, link_copy.bo.size);
+         anv_vma_free(pool->device, &link_copy.bo);
          anv_gem_close(pool->device, link_copy.bo.gem_handle);
          link = link_copy.next;
       }
@@ -1035,11 +1036,15 @@ anv_bo_pool_alloc(struct anv_bo_pool *pool, struct anv_bo *bo, uint32_t size)
 
    new_bo.flags = pool->bo_flags;
 
+   if (!anv_vma_alloc(pool->device, &new_bo))
+      return vk_error(VK_ERROR_OUT_OF_DEVICE_MEMORY);
+
    assert(new_bo.size == pow2_size);
 
    new_bo.map = anv_gem_mmap(pool->device, new_bo.gem_handle, 0, pow2_size, 0);
    if (new_bo.map == MAP_FAILED) {
       anv_gem_close(pool->device, new_bo.gem_handle);
+      anv_vma_free(pool->device, &new_bo);
       return vk_error(VK_ERROR_MEMORY_MAP_FAILED);
    }
 
@@ -1083,8 +1088,10 @@ anv_scratch_pool_finish(struct anv_device *device, struct anv_scratch_pool *pool
    for (unsigned s = 0; s < MESA_SHADER_STAGES; s++) {
       for (unsigned i = 0; i < 16; i++) {
          struct anv_scratch_bo *bo = &pool->bos[i][s];
-         if (bo->exists > 0)
+         if (bo->exists > 0) {
+            anv_vma_free(device, &bo->bo);
             anv_gem_close(device, bo->bo.gem_handle);
+         }
       }
    }
 }
@@ -1181,6 +1188,11 @@ anv_scratch_pool_alloc(struct anv_device *device, struct anv_scratch_pool *pool,
 
    if (device->instance->physicalDevice.has_exec_async)
       bo->bo.flags |= EXEC_OBJECT_ASYNC;
+
+   if (device->instance->physicalDevice.has_exec_softpin)
+      bo->bo.flags |= EXEC_OBJECT_PINNED;
+
+   anv_vma_alloc(device, &bo->bo);
 
    /* Set the exists last because it may be read by other threads */
    __sync_synchronize();
@@ -1400,6 +1412,8 @@ anv_bo_cache_release(struct anv_device *device,
 
    if (bo->bo.map)
       anv_gem_munmap(bo->bo.map, bo->bo.size);
+
+   anv_vma_free(device, bo);
 
    anv_gem_close(device, bo->bo.gem_handle);
 
