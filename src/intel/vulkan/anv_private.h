@@ -155,6 +155,21 @@ align_i32(int32_t v, int32_t a)
    return (v + a - 1) & ~(a - 1);
 }
 
+static inline uint64_t
+canonical_address(uint64_t v) {
+   /* From the Broadwell PRM Vol. 2a, MI_LOAD_REGISTER_MEM::MemoryAddress:
+    *
+    *    "This field specifies the address of the memory location where the
+    *    register value specified in the DWord above will read from. The
+    *    address specifies the DWord location of the data. Range =
+    *    GraphicsVirtualAddress[63:2] for a DWord register GraphicsAddress
+    *    [63:48] are ignored by the HW and assumed to be in correct
+    *    canonical form [63:48] == [47]."
+    */
+   const int shift = 63 - 47;
+   return (int64_t)(v << shift) >> shift;
+}
+
 /** Alignment must be a power of 2. */
 static inline bool
 anv_is_aligned(uintmax_t n, uintmax_t a)
