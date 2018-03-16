@@ -107,8 +107,8 @@ anv_physical_device_init_heaps(struct anv_physical_device *device, int fd)
     * EXEC_OBJECT_SUPPORTS_48B_ADDRESS flag and not whether or not the
     * hardware has actual 48bit address support.
     */
-   device->supports_48bit_addresses =
-      (device->info.gen >= 8) && anv_gem_supports_48b_addresses(fd);
+   device->supports_48bit_addresses = (device->info.gen >= 8) &&
+      anv_gem_get_param(fd, I915_PARAM_HAS_ALIASING_PPGTT) == 3;
 
    uint64_t heap_size;
    VkResult result = anv_compute_heap_size(fd, &heap_size);
