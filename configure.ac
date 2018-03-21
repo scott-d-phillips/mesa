@@ -404,14 +404,16 @@ AC_SUBST([WNO_OVERRIDE_INIT])
 dnl
 dnl Optional flags, check for compiler support
 dnl
-SSE41_CFLAGS="-msse4.1"
 dnl Code compiled by GCC with -msse* assumes a 16 byte aligned
 dnl stack, but on x86-32 such alignment is not guaranteed.
 case "$target_cpu" in
 i?86)
-    SSE41_CFLAGS="$SSE41_CFLAGS -mstackrealign"
+    SSE_CFLAGS="-mstackrealign"
     ;;
 esac
+AC_SUBST([SSE_CFLAGS], $SSE_CFLAGS)
+
+SSE41_CFLAGS="$SSE_CFLAGS -msse4.1"
 save_CFLAGS="$CFLAGS"
 CFLAGS="$SSE41_CFLAGS $CFLAGS"
 AC_COMPILE_IFELSE([AC_LANG_SOURCE([[

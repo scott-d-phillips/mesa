@@ -128,8 +128,6 @@ files_i965 = files(
   'intel_tex_image.c',
   'intel_tex_obj.h',
   'intel_tex_validate.c',
-  'intel_tiled_memcpy.c',
-  'intel_tiled_memcpy.h',
   'intel_upload.c',
   'libdrm_macros.h',
 )
@@ -147,6 +145,17 @@ foreach v : ['40', '45', '50', '60', '70', '75', '80', '90', '100']
     dependencies : [dep_libdrm, idep_nir_headers],
   )
 endforeach
+
+i965_tiled_memcpy = static_library(
+  'i965_tiled_memcpy',
+  ['intel_tiled_memcpy.c', 'intel_tiled_memcpy.h'],
+  include_directories : [
+    inc_common, inc_intel, inc_dri_common, inc_util, inc_drm_uapi,
+  ],
+  c_args : [c_vis_args, no_override_init_args, sse_args, '-msse2'],
+  cpp_args : [cpp_vis_args, sse_args, '-msse2'],
+  dependencies : [dep_libdrm, dep_valgrind, idep_nir_headers],
+)
 
 oa_generator = generator(
   prog_python2,
@@ -174,7 +183,7 @@ libi965 = static_library(
   c_args : [c_vis_args, no_override_init_args, '-msse2'],
   cpp_args : [cpp_vis_args, '-msse2'],
   link_with : [
-    i965_gen_libs, libintel_common, libisl, libintel_compiler, libblorp,
+    i965_gen_libs, libintel_common, libisl, libintel_compiler, libblorp, i965_tiled_memcpy,
   ],
   dependencies : [dep_libdrm, dep_valgrind, idep_nir_headers],
 )

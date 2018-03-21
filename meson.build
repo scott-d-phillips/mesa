@@ -779,19 +779,20 @@ foreach a : ['-Werror=pointer-arith', '-Werror=vla']
   endif
 endforeach
 
-if host_machine.cpu_family().startswith('x86')
-  pre_args += '-DUSE_SSE41'
-  with_sse41 = true
-  sse41_args = ['-msse4.1']
+sse_args = []
+with_sse41 = false
+sse41_args = []
 
+if host_machine.cpu_family().startswith('x86')
   # GCC on x86 (not x86_64) with -msse* assumes a 16 byte aligned stack, but
   # that's not guaranteed
   if host_machine.cpu_family() == 'x86'
-    sse41_args += '-mstackrealign'
+    sse_args += '-mstackrealign'
   endif
-else
-  with_sse41 = false
-  sse41_args = []
+
+  pre_args += '-DUSE_SSE41'
+  with_sse41 = true
+  sse41_args = sse_args + ['-msse4.1']
 endif
 
 # Check for GCC style atomics
