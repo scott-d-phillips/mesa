@@ -90,8 +90,7 @@ util_vma_heap_alloc(struct util_vma_heap *heap,
 {
    /* The caller is expected to reject zero-size allocations */
    assert(size > 0);
-
-   assert(util_is_power_of_two_nonzero(alignment));
+   assert(alignment > 0);
 
    util_vma_heap_validate(heap);
 
@@ -110,7 +109,7 @@ util_vma_heap_alloc(struct util_vma_heap *heap,
       /* Align the offset.  We align down and not up because we are allocating
        * from the top of the hole and not the bottom.
        */
-      offset &= ~(alignment - 1);
+      offset = (offset / alignment) * alignment;
 
       if (offset < hole->offset)
          continue;
